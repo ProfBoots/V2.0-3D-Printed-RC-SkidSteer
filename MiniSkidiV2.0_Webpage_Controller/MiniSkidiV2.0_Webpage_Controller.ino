@@ -12,7 +12,7 @@
 #include <iostream>
 #include <sstream>
 
-const char* ssid     = "ProfBoots MiniSkidi 3";
+const char* ssid     = "ProfBoots MiniSkidi";
 
 #define bucketServoPin  23
 
