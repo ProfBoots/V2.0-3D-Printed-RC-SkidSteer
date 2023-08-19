@@ -1,14 +1,13 @@
 #include <Arduino.h>
 #ifdef ESP32
 #include <WiFi.h>
-#include <AsyncTCP.h>
+#include <AsyncTCP.h> //by dvarrel
 #elif defined(ESP8266)
-#include <ESP8266WiFi.h>
-#include <ESPAsyncTCP.h>
+#include <ESPAsyncTCP.h> //by dvarrel
 #endif
-#include <ESPAsyncWebServer.h>
+#include <ESPAsyncWebSrv.h> //by dvarrel
 
-#include <ESP32Servo.h>
+#include <ESP32Servo.h> //by Kevin Harrington
 #include <iostream>
 #include <sstream>
 
