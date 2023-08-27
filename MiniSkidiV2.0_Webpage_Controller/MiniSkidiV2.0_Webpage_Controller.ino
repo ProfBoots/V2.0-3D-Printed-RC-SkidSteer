@@ -1,3 +1,5 @@
+//make sure to upload with ESP32 Dev Module selected as the board under tools>Board>ESP32 Arduino
+
 #include <Arduino.h>
 #ifdef ESP32
 #include <WiFi.h>
@@ -28,7 +30,7 @@ struct MOTOR_PINS
 std::vector<MOTOR_PINS> motorPins = 
 {
   {32, 33},  //RIGHT_MOTOR Pins (IN1, IN2)
-  {5, 18},  //LEFT_MOTOR  Pins
+  {26, 25},  //LEFT_MOTOR  Pins
   {19, 21}, //ARM_MOTOR pins 
 };
 
@@ -293,7 +295,7 @@ void rotateMotor(int motorNumber, int motorDirection)
     {
     digitalWrite(motorPins[ARM_MOTOR].pinIN1, HIGH);
     digitalWrite(motorPins[ARM_MOTOR].pinIN2, LOW); 
-    delay(5);
+    delay(10);
     digitalWrite(motorPins[motorNumber].pinIN1, LOW);
     digitalWrite(motorPins[motorNumber].pinIN2, LOW);
     delay(5);
@@ -497,7 +499,7 @@ void setUpPinModes()
   bucketServo.attach(bucketServoPin);
   auxServo.attach(auxServoPin);
   auxControl(150);
-  bucketTilt(150);
+  bucketTilt(140);
 }
 
 
