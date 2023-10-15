@@ -3,17 +3,20 @@
 #include <Arduino.h>
 #ifdef ESP32
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <AsyncTCP.h> //by dvarrel
 #elif defined(ESP8266)
 #include <ESPAsyncTCP.h> //by dvarrel
 #endif
 #include <ESPAsyncWebSrv.h> //by dvarrel
-
 #include <ESP32Servo.h> //by Kevin Harrington
 #include <iostream>
 #include <sstream>
+#include <Preferences.h>
 
-const char* ssid     = "ProfBoots MiniSkidi";
+Preferences preferences; 
+
+const char* default_ssid = "ProfBoots MiniSkidi";
 
 #define bucketServoPin  23
 
@@ -42,6 +45,7 @@ std::vector<MOTOR_PINS> motorPins =
 #define ARMDOWN 6
 #define STOP 0
 
+#define LED 2
 
 #define RIGHT_MOTOR 1
 #define LEFT_MOTOR 0
@@ -53,7 +57,8 @@ std::vector<MOTOR_PINS> motorPins =
 bool horizontalScreen;//When screen orientation is locked vertically this rotates the D-Pad controls so that forward would now be left.
 bool removeArmMomentum = false;
 
-
+unsigned long startMillis;
+const unsigned long wifiTimeout = 20000;
 
 AsyncWebServer server(80);
 AsyncWebSocket wsCarInput("/CarInput");
@@ -185,7 +190,9 @@ const char* htmlHomePage PROGMEM = R"HTMLHOMEPAGE(
       </tr> 
 
     </table>
-  
+    <div style="margin-top:50px;">
+      <a href="/wifisetup" >WiFi Configuration</a>
+    </div>
     <script>
       var webSocketCarInputUrl = "ws:\/\/" + window.location.hostname + "/CarInput";      
       var websocketCarInput;
@@ -275,6 +282,43 @@ const char* htmlHomePage PROGMEM = R"HTMLHOMEPAGE(
   </body>    
 </html>
 )HTMLHOMEPAGE";
+
+const char* wifiSetup PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=.9, maximum-scale=1, user-scalable=yes">
+        <title>MINISKIDI WIFI SETUP</title>
+        <script>
+        function removeCredentials() {
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/removeWiFi', true);
+            xhr.send();
+            alert('Removed! Restart your skidi and connect to it!');
+        }
+        </script>
+    </head>
+<body>
+  <center>
+    <h2>ESP32 WiFi Setup</h2>
+    <form action="/setWiFi" method="post">
+        <label for="ssid">SSID:</label><br>
+        <input type="text" id="ssid" name="ssid" autocorrect="off" autocapitalize="none"><br><br>
+        <label for="password">Password:</label><br>
+        <input type="password" id="password" name="password"><br><br>
+        <input type="submit" value="Set WiFi Credentials">
+    </form>
+    <br>
+    <div style="margin-top:20px;"/>
+    <button onclick="removeCredentials()">Remove Existing Credentials</button>
+    <div style="margin-top:50px;">
+      <a href="/" >Back</a>
+    </div>
+  </center>
+</body>
+</html>
+)rawliteral";
+
 
 
 void rotateMotor(int motorNumber, int motorDirection)
@@ -500,15 +544,12 @@ void setUpPinModes()
   auxServo.attach(auxServoPin);
   auxControl(150);
   bucketTilt(140);
+  pinMode(LED,OUTPUT);
 }
 
-
-void setup(void) 
-{
-  setUpPinModes();
-  Serial.begin(115200);
-
-  WiFi.softAP(ssid );
+void spawnAP(void){
+  WiFi.softAP(default_ssid);
+    
   IPAddress IP = WiFi.softAPIP();
   Serial.print("AP IP address: ");
   Serial.println(IP);
@@ -521,6 +562,90 @@ void setup(void)
 
   server.begin();
   Serial.println("HTTP server started");
+  digitalWrite(LED,LOW);
+}
+
+void setup(void) 
+{
+  setUpPinModes();
+
+  Serial.begin(115200);
+
+  preferences.begin("wifi-config", false);
+
+  String storedSSID = preferences.getString("ssid", "");
+  String storedPassword = preferences.getString("password", "");
+
+  if(storedSSID != "" && storedPassword != "") {
+    Serial.println("WiFi details found!");
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(storedSSID.c_str(), storedPassword.c_str());
+    Serial.print("Connecting to ");
+    Serial.print(storedSSID.c_str());
+
+    while (WiFi.status() != WL_CONNECTED && millis() - startMillis <= wifiTimeout) {
+      Serial.print('.');
+      delay(500);
+      digitalWrite(LED,HIGH);
+      delay(500);
+      digitalWrite(LED,LOW);
+    }
+    
+    if(WiFi.status() == WL_CONNECTED){
+      Serial.println();
+      Serial.print("Connected to WiFi, IP address: ");
+      Serial.println(WiFi.localIP());
+      digitalWrite(LED,HIGH);
+    } else {
+      Serial.println();
+      Serial.println("Unable to connect to WiFi! Spawning AP!");
+      WiFi.disconnect();
+      spawnAP();
+    }
+  } else {
+      spawnAP();
+  }
+
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send_P(200, "text/html", htmlHomePage);
+  });
+  server.on("/wifisetup", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send_P(200, "text/html", wifiSetup);
+  });
+  wsCarInput.onEvent(onCarInputWebSocketEvent);
+  server.addHandler(&wsCarInput);
+  server.begin();
+
+  if (!MDNS.begin("miniskidi")) {
+      Serial.println("Error setting up MDNS responder!");
+  }else{
+      Serial.println("mDNS responder started");
+  }
+
+  MDNS.addService("http", "tcp", 80);
+
+  server.on("/setWiFi", HTTP_POST, [](AsyncWebServerRequest *request) {
+    String ssid;
+    String password;
+
+    if (request->hasParam("ssid", true) && request->hasParam("password", true)) {
+        ssid = request->getParam("ssid", true)->value();
+        password = request->getParam("password", true)->value();
+
+        preferences.putString("ssid", ssid);
+        preferences.putString("password", password);
+
+        request->send(200, "text/plain", "WiFi set successfully! Restart your miniskidi, wait for a solid blue light, connect to the wifi ssid that you just added to your skidi, then go to miniskidi.local!");
+    } else {
+        request->send(400, "text/plain", "SSID or Password missing.");
+    }
+  });
+  server.on("/removeWiFi", HTTP_POST, [](AsyncWebServerRequest *request) {
+    preferences.remove("ssid");
+    preferences.remove("password");
+    WiFi.disconnect();
+    request->send(200, "text/html", "Removed");
+});
 
 }
 
